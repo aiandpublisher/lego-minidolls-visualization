@@ -1,11 +1,10 @@
 ---
-title: "INST0065 Assessmwent 2"
-author: "20053281"
+title: "lego minidolls"
+author: "arobotdog"
 date: "20/05/2021"
 output: html_document
 
 ---
-<!-- report word count: 1988 (Reference & commentary & codes not included) -->
 <!-- it is published on https://rpubs.com/arobotdog/lego_minidoll in case knit fails -->
 <!-- to properly load the waffle library, make sure `install.packages("waffle")` is included in the following chunk-->
 
