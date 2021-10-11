@@ -1,0 +1,596 @@
+---
+title: "INST0065 Assessmwent 2"
+author: "20053281"
+date: "20/05/2021"
+output: html_document
+
+---
+<!-- report word count: 1988 (Reference & commentary & codes not included) -->
+<!-- it is published on https://rpubs.com/arobotdog/lego_minidoll in case knit fails -->
+<!-- to properly load the waffle library, make sure `install.packages("waffle")` is included in the following chunk-->
+
+```{r setup, include=TRUE, message=FALSE}
+# set up libraries for the visualization
+knitr::opts_chunk$set(echo = TRUE) #chunks will show codes and results by default
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(waffle) 
+# install.packages("waffle")
+# the previous line should be included for loading the waffle library 
+# see more at https://www.rdocumentation.org/packages/waffle/versions/0.7.0
+```
+
+***
+***
+***
+
+# Explore Lego Mini-dolls
+
+## 1. Introduction
+LEGO mini-dolls are variants of the mini-figures in Friends theme (2012), Disney Princess theme (2014), Fusion theme (2014) and Elves theme (2015) (Brickpedia, no dates). In a contrast to standard mini-figures, they are slightly taller, look more realistic, and with much more controversy. 
+
+Its introduction has been regarded by the company as an attempt to bridge the gender gap and broaden its appeal to girls (Chew, 2015; Hansegard, 2015; Wieners, 2011), whereas critics have contended how mini-dolls are less compatible with other mini-figures and embed gender stereotypes (Brickpedia, 2021; Shoemaker & Cole, 2014). 
+
+This project aims at taking a closer look at characters of mini-dolls exploring datasets collected from the Rebrickable Lego Database, to study the skin tones of mini-doll characters. It also studies the most common characters and the most frequently used head parts to gain more insights into the skin tones of mini-doll figures.
+
+
+***
+***
+***
+
+## 2 Data Preparation
+
+### 2.1 Data Source
+The data for this markdown file is taken from [https://rebrickable.com/downloads/] (rebrickable.com) as follows.
+
+* `minifigs.csv`: `fig_num` identifies every mini-doll figure, `name` include names of mini-dolls
+* `inventories.csv`: both `id` and `set_num` are unique for each mini-doll, this data is used as a merging agency
+* `inventory_parts.csv`: a combination of `part_num` and `inventory_id` is used to look for the use of a certain part in an official set
+* `part_categories.csv`: this data is used to find the category id of mini-dolls
+* `colors.csv`: `rgb`, `name` include color values and color names for parts, `id` is used for joining datasets
+
+<!-- load data  -->
+```{r load-data, include=FALSE}
+# include=FALSE means that code will run, but results will not be shown
+# This section loads all the data; you do not need to use all tables
+# NB This section uses read_csv(), which is included in tidyverse 
+inventories <- read_csv("https://cdn.rebrickable.com/media/downloads/inventories.csv.gz")
+inventory_sets <- read_csv("https://cdn.rebrickable.com/media/downloads/inventory_sets.csv.gz")
+sets <- read_csv("https://cdn.rebrickable.com/media/downloads/sets.csv.gz")
+themes <- read_csv("https://cdn.rebrickable.com/media/downloads/themes.csv.gz")
+inventory_minifigs <- read_csv("https://cdn.rebrickable.com/media/downloads/inventory_minifigs.csv.gz")
+minifigs <- read_csv("https://cdn.rebrickable.com/media/downloads/minifigs.csv.gz")
+inventory_parts <- read_csv("https://cdn.rebrickable.com/media/downloads/inventory_parts.csv.gz")
+parts <- read_csv("https://cdn.rebrickable.com/media/downloads/parts.csv.gz")
+colors <- read_csv("https://cdn.rebrickable.com/media/downloads/colors.csv.gz")
+elements <- read_csv("https://cdn.rebrickable.com/media/downloads/elements.csv.gz")
+part_categories <- read_csv("https://cdn.rebrickable.com/media/downloads/part_categories.csv.gz")
+part_relationships <- read_csv("https://cdn.rebrickable.com/media/downloads/part_relationships.csv.gz")
+```
+
+<!-- test the data -->
+```{r test-data, include=FALSE}
+head(inventories)
+head(inventory_sets)
+head(sets)
+head(themes)
+head(inventory_minifigs)
+head(minifigs)
+head(inventory_parts)
+head(parts)
+head(colors)
+head(elements)
+head(part_categories)
+head(part_relationships)
+```
+
+***
+
+### 2.2. Merging Process
+
+To find the facial feature for each mini-doll, it would be necessary to match each mini-doll head part with its color and find the according head part for every mini-doll character. As such information is stored in separate files, relevant datasets are merged in stages.
+
+To start with, `part_categories` and `inventory_parts` are merged in a way that only keeps inventory records of mini-doll head parts. 
+
+Subsequently, the results are joined with `colors` to retrieve information about color for every head part, and then merged with `inventories` by `inventory_id` to create table `minidolls`.
+
+Data in `minidolls` needed for this project includes the unique id of the inventory which includes this part, a unique id for the head part, the color name along with the hexadecimal color value, and the unique id for each mini-doll figure (`set_num`). The next step should be joining `minidolls` with minifig-related datasets to link parts with mini-doll figures.
+
+However, there is an inconsistency in the `inventory_id` values between `inventory_minifig` table and `inventories` table. For example, a mini-doll head part `11816pr0188` is used in the inventory `59916`, but there is no matching record in `inventory_minifigs`. 
+
+_This could be a special feature for minidolls, as I tried parts of other categories and those worked out fine. For this reason, the set theme of minidolls could not be searched._
+
+Fortunately, values in the column of `set_num` in the results are found to be unique for the inventory entry of each mini-doll, and values accord with column `fig_num` in `minifigs`. Consequently, these two columns are used as the common field and the output dataset `minidoll_fig` contain names of mini-dolls in all released brick sets, with information about its color, head parts, inventory id. 
+
+***
+
+<!-- this chunk merge the data for visualization and will be shown-->
+```{r datamerging}
+# merge datasets for answering research questions
+# retrieve all the parts categorized as "minidoll heads" from table "parts"
+minidoll_id <- part_categories$id[part_categories$name == "Minidoll Heads"]
+minidoll_parts <- subset(parts, part_cat_id == minidoll_id)
+
+# merge in stages to link "parts" with "colors", "inventory_parts", "minifigs" with wanted columns
+sub_parts <- subset(inventory_parts, select = inventory_id:quantity)  
+inventory_minidoll <- merge(minidoll_parts, sub_parts, 
+                            by = "part_num", 
+                            all = FALSE) #610 obs
+color_minidoll <- merge(inventory_minidoll, colors, 
+                        by.x = "color_id", by.y = "id",
+                        all.x = TRUE, all.y = FALSE) # 610 obs
+
+#color_minidoll$rgb<-paste("#",color_minidoll$rgb,sep="") this project manually defines the color schema, because when I use the hex color value straight for the scale_color_manual, somehow there tends to be inconsistency in color displays, if this problem is addressed, this line should be included
+
+minidolls <- merge(color_minidoll, inventories, 
+                  by.x = "inventory_id", by.y = "id", 
+                  all.x=TRUE, all.y=FALSE) #610 obs
+minidoll_fig <- merge(minidolls, minifigs, 
+                      by.x = "set_num", by.y = "fig_num", 
+                      all = FALSE) #606 obs
+#4 minidoll records of version 2 are lost in the merging process for different coding schema of `set_num`, and not appearing in minifig-related datasets
+```
+
+***
+
+Although `minidoll_fig` has contained almost everything needed for this project, one problem appears among character names. 
+
+In the original file `minifig.csv`, column `name` consists of character name, and possibly a brief description. In many ways, the same mini-doll character has different variations. For example, `Stephanie - White Jersey, Dark Blue Trousers` and `Stephanie -Lavender Jacket, Scarf, Light Aqua Skirt` are essentially the same character, but recorded as two types of mini-dolls. In some cases, the character does change her/his skin tone, but in most cases, simply changes outfits. 
+
+This project studies the characters of mini-dolls, so the outfit descriptions could be ambiguous for measuring the occurrences of specific characters in the inventories. To clean the output descriptions, column `name` is divided by `str_split_fixed()` and the character names are added as new columns to `minidoll_fig`. So far, the data set has been well prepared for the visualization. It contains information about all mini-doll figures in the released LEGO brick sets. The columns containing character names, skin tones, head parts are extracted into a subset `minidoll_face`.
+
+***
+<!-- this chunk clean the outfit description and rearrange the table by the name of characters and will be shown -->
+```{r rewrite_names}
+# clean the outfit descriptions
+# split the column by all possible deliminaters
+minidoll<- str_split_fixed(minidoll_fig$name, "-| with| in| -|,", 2) 
+
+# add to the original table as ordered
+minidoll_fig$name1 <- minidoll[1:606,1] 
+colnames(minidoll_fig) <- c('set_num','inventory_id','color_id','part_num','name_head_part','part_cat_id','part_material','quantity','color_name','rgb','is_trans','version','name','num_parts','character_name')
+
+# only wanted columns are kept in the dataset
+minidoll_face <- subset(minidoll_fig,
+                        select = c(name_head_part, color_name, rgb, character_name)
+                        ) 
+colnames(minidoll_face) <- c('face','color','hex','doll') 
+```
+
+***
+
+### 2.3 Final Dataset `minidoll_face`  
+- `face`: head part used in the minidoll figure  
+- `color`: color name of the part  
+- `hex`: color value of the part  
+- `doll`: character name  
+
+<!--only the output will be displayed -->
+```{r summary_data, echo=FALSE}
+summary(minidoll_face)
+```
+
+***
+***
+***
+
+## 3. Data Visualization  
+### 3.1 Lollipop Charts   
+Lollipop charts are essentially a variant of bar chart (Weitz, 2020), which emphasizes on individual values and supports the comparison of numerical values among different categories (Few, 2004). Lollipop charts encode quantitative values by 2-D location of the dot and line length (instead of bar length). 
+
+Just like LEGO mino-doll figures, lollipop charts have triggered much controversy among data scientists regarding their efficiency in communicating quantitative messages. Steven Few (2017) contended that the lines in lollipop charts were too thin to identify and a bigger dot would influence accuracy in interpretation. Nevertheless, an experiment conducted by Eli Holder (2020) proved that there were no significant differences between bar charts and lollipop charts regarding audiences' comprehensions, hence the justification of lollipop charts.  
+
+To identify the most commonly-included mini-doll characters in LEGO sets and most frequently-used head parts among characters, some subsets are created from `minidoll_face` (`doll`, `common_face`). Both purposes emphasize comparing categorical subdivisions, so bar charts would be an ideal choice (Few, 2004). Considering lollipop charts fit the aesthetic this project is aiming for, it uses lollipop charts for visualizing these subsets. To address the concerns about accuracy, this project uses a grid background for all lollipop charts, to strive for a better indication of the dot's location. 
+
+Additionally, the skin tone of the head part is introduced as the third variable for communicating more information with less ink; and the color is used as the visual attribute for its excellent capability of encoding categorical data of a nominal scale (Gehlenborg, 2012).
+
+***
+<!--  this chunk prepares the data set about most common mini-doll characters -->
+```{r tabledoll}
+# prepares the data set about most common mini-doll characters
+# count the frequency for each character and group by character names + facial color
+doll<-aggregate(minidoll_face$doll,
+                list(minidoll_face$doll, minidoll_face$color, minidoll_face$hex),
+                length)
+colnames(doll) <- c('name','Face color','hex','frequency')
+# the output contains information about the name of each each character, the according skin tone, the number of the total inclusion of that character in all released LOGO sets. 
+
+#list top 20 characters with most inventories among mini-dolls 
+doll <- doll[order(doll$frequency, decreasing = TRUE),]
+doll_head <- head(doll,20)
+```
+***
+<!-- this chunk provides color values for all visualizations -->
+```{r colorschema}
+# provides color values for all visualizations
+color_schema <- c("Bright Pink" = "#E4ADC8",
+                              "Flesh" = "#D09168",
+                              "Light Flesh" = "#F6D7B3",
+                              "Medium Dark Flesh" = "#CC702A",
+                              "Light Aqua" = "#ADC3C0",
+                              "Black" = "#05131D",
+                             "Bright Light Orange" = "#F8BB3D",
+                             "Dark Brown" = "#352100",
+                             "Lavender" = "#E1D5ED",
+                             "Trans-Purple" = "#A5A5CB")
+# I tried to use the hex color value straight for the scale_color_manual, but somehow there tends to be inconsistency in color displays, so I defined the color schema by myself
+```
+***
+<!-- this chunk visualizes the data set about most common mini-doll characters-->
+```{r common_character_viz}
+# visualizes the data set about most common mini-doll characters
+# a lollipop chart
+doll_head <- doll_head[order(doll_head$frequency, decreasing = FALSE),]
+#change the name into factors so that ggplot will plot the data based on the table sequence (otherwise it will plot it according to the alphabetical sequency of x values)
+doll_head$name <- factor(doll_head$name, unique(doll_head$name)) 
+bk <- c(0,10,20,30,40,50,60,70,80) #intervals
+
+#ideally, geom_segment() should be used to easily draw the lollipop chart, but considering geom_segment would only draw a part of line for the stacking 'olivia' (Olivia changes her skin tone), i use this method instead.
+doll_viz <- ggplot(doll_head, aes(x = name, y = frequency))+
+  geom_bar(stat = "identity", position = "stack",width=0.1)+ 
+  geom_point(stat = "identity", position = "stack", aes(col = `Face color`), size = 3)+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 75), breaks = bk)+
+  scale_color_manual(values = color_schema)+
+  labs(x = 'character names',
+       y = 'total occurrence in all inventories',
+       title = 'Top 20 Minidoll Characters Among All Released Lego Sets',
+       subtitle = "According to the occurrence frequecy of characters in all inventories ",
+       caption = "[Data From Rebrickable]",
+       color = 'Skin tone')+
+  theme_light()+
+  theme(title = element_text(face='bold',size = 12),
+        axis.text.x = element_text(size = 7,face = 'bold'), 
+        axis.text.y = element_text(size = 7),
+        axis.title.x = element_text(size = 8, face = 'bold'),
+        axis.title.y = element_text(size = 8, face = 'bold'),
+        legend.title = element_text(size = 8, face = 'bold'),
+        legend.text  = element_text(size = 7),
+        plot.tag = element_text(face = "italic", size = 4),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        )
+  viz_doll <- doll_viz + coord_flip()
+# Olivia changed her skin tone, who else did so? Relevent data is also visualized, code is hidden in the output but is included in the rmd file: r chunk named `change_skin`
+```
+
+***
+<!-- this chunk prepared the data set about most common head parts among characters-->
+```{r tableface}
+# prepared the data set about most common head parts among characters-
+# count the frequency of specific head part among characters
+face <- aggregate(minidoll_face$face,
+                list(minidoll_face$face, minidoll_face$doll, minidoll_face$color),
+                length)
+colnames(face) <- c('face','dollname','color','frequency')
+
+#clean the unneccessary texts in the column containing face features 
+face$face <- gsub("Minidoll Head ","",face$face)
+face$face <- gsub("with ","",face$face)
+face$face <- gsub(" Print","",face$face)
+face$face <- gsub(" and",",",face$face)
+
+facecount <- aggregate(face$face,
+                list(face$face, face$color),
+                length)
+colnames(facecount) <- c('face','Face color','frequency')
+# subset of face parts being used more than one character
+common_face <- subset(facecount, frequency>1) 
+common_face <- common_face[order(common_face$frequency, decreasing=FALSE),]
+common_face$face <- factor(common_face$face, unique(common_face$face)) 
+```
+
+***
+<!-- this chunk visualizes the data set about most common head parts among characters-->
+```{r commonface}
+# visualizes the data set about most common head parts among characters
+# a lollipop chart
+bks<-c(0,2,4,6,8,10,12) #intervals
+face_viz <- ggplot(common_face, aes(x = face, y = frequency, label = frequency))+
+  geom_segment(aes(y = 0, x = face, yend = frequency, xend = face))+
+  geom_point(stat = "identity", aes(col = `Face color`), size = 3)+
+  scale_color_manual(values = color_schema)+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 11), breaks = bks)+
+  labs(x = 'common faces',
+       y = 'shared by how many characters',
+       title = 'Common Faces Among Minidoll Sharacters',
+       subtitle = "According to the mini-doll head part",
+       caption = "[Data From Rebrickable]")+
+  theme_light()+
+  theme(title = element_text(face = 'bold', size = 12),
+        axis.text.x = element_text(size = 7, face = 'bold'), 
+        axis.text.y = element_text(size = 7, face = 'italic'),
+        axis.title.x = element_text(size = 9, face = 'bold'),
+        axis.title.y = element_text(size = 9, face = 'bold'),
+        legend.title = element_text(size = 8, face = 'bold'),
+        legend.text  = element_text(size = 7),
+        legend.key = element_rect(fill = NA),
+        legend.position = "top",
+        plot.tag = element_text(face = "italic", size = 4),
+        plot.margin = margin(0, 0, 0, 0, "cm"))
+  viz_face<- face_viz + coord_flip()
+```
+
+***
+
+### 3.2 Pie Charts, Waffle Charts, or Bar Charts
+The ultimate purpose of this project is to study the skin tone distribution among all mini-doll characters. Accordingly, the subset `face` is created based on the column `face` in `minidoll_face`, measuring the frequency of skin tone by the color of the character's head parts.  
+
+<!-- this chunk prepares the data set about skin tone among characters -->
+```{r skin_tone_data}
+# examine the skin tone among all characters
+# count the frequency for each skin tone
+color<-aggregate(doll$`Face color`,
+          list(doll$`Face color`, doll$hex),
+          length) 
+colnames(color) <- c('name','hex','ratio') 
+color <- color[order(color$ratio, decreasing = FALSE),]
+color$`Face color` <- factor(color$name, unique(color$name)) 
+# make sure the data will be plotted by sequence
+```
+
+
+The visualization attempts to provide a general picture of LEGO mini-dolls' skin tones, which should be a part-to-whole relationship. However, the problem is choosing the right method.
+
+Pie chart is commonly used for visualizing such a relationship by 2-D areas and angles, whereas Few (2007) pointed in his article "Save the Pies for Dessert" that bar charts present such a relationship in a similar effective way but demonstrates a much better comparison of the magnitude of each part. Furthermore, waffle charts, an alternative for pie charts, also sound appealing to the author, as they avoid the misrepresentation of data values (which addresses Few's concern towards pie charts) and highlights the proportions of every category (Amitkkumra, 2020).
+
+All three types of visualization are made, to test out which one is better for this project.
+
+ - As stated previously, color is intuitively used as an attribute communicating information about skin tones.
+ 
+ - A vertical bar chart is created.  
+```{r bar_viz}
+# creats a vertical bar chart
+skin_bar <- ggplot(color, aes(x = name, y = ratio, fill = `Face color`))+
+  geom_bar(stat = "identity")+
+  scale_fill_manual(values = color_schema)+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 110))+
+  labs(title='Skin Tone Distribution Among Minidoll Characters (bar)',
+       subtitle="Based on the color of head parts among mini-doll characters",
+       x = "color of skin",
+       y = "how many characters have this skin tone",
+       caption = "[Data From Rebrickable]")+
+  theme_light()+ 
+  theme(title = element_text(face = 'bold', size = 12),
+        legend.title = element_text(size = 8, face = 'bold'),
+        legend.text  = element_text(size = 7),
+        legend.key = element_rect(fill = NA),
+        plot.margin = margin(0, 0, 0, 0, "cm"))
+skin_bar <- skin_bar + coord_flip()
+```
+ 
+ - A pie chart is created
+```{r pie_viz}
+# visualize the data as a pie chart
+skin_pie <- ggplot(color, aes(x = 2, y = ratio, fill = `Face color`))+
+  xlim(0.5,2.5)+
+  geom_bar(stat = "identity")+
+  scale_fill_manual(values = color_schema)+
+  labs(title = 'Skin Tone Distribution Among Minidoll Characters',
+       subtitle = "Based on the color of head parts among mini-doll characters",
+       caption = "[Data From Rebrickable]")+
+  coord_polar("y", start = 0)+
+  theme_void()+  # to get rid of the uneccesary texts on axis
+  theme(title = element_text(face = 'bold', size = 12),
+        legend.title = element_text(size = 8, face = 'bold'),
+        legend.text  = element_text(size = 7),
+        legend.key = element_rect(fill = NA),
+        plot.margin = margin(0, 0, 0, 0, "cm"))
+```
+
+ - A waffle chart is created using waffle library.
+```{r waffle_viz}
+# an alternative waffle chart is provided
+skin<-c(`Black` = 1,
+        `Dark Brown` = 1,
+        `Trans-Purple` = 1,
+        `Bright Pink` = 1,
+        `Bright Light Orange` = 1,
+        `Lavender` = 2,
+        `Light Aqua` = 3,
+        `Flesh` = 7,
+        `Medium Dark Flesh` = 29,
+        `Light Flesh`  = 104
+        )  
+skin_waffle <- waffle(skin, rows = 15, 
+                      colors = color_schema,
+                      size = 0.2)+
+    labs(title = 'Skin Tone of Minidoll Characters (waffle)',
+       subtitle = "one square equals to one character",
+       caption = "[Data From Rebrickable]")+
+    theme(title = element_text(face='bold',size = 12),
+        legend.text  = element_text(size = 7))
+```
+
+***
+***
+***
+
+## 4. Findings
+### 4.1 General picture of Mini-doll Characters 
+The top 20 most common mini-doll characters among different LEGO sets are revealed by the following visualization. It is apparent that Stephanie, Mia, Emma, Andrea, Olivia are the characters that are included in most sets, who are the five main characters of the "Friends" theme. It implies the dominance of "Friends" theme in the arena of mini-dolls (this result would be more reliable if the `sets.csv` provided common fields for mini-doll datasets). 
+
+***
+
+```{r viz_doll_characters, echo=FALSE}
+viz_doll
+```
+
+***
+
+Besides, only 19 of 160 head parts are found to be shared by different mini-doll characters, which presents the richness of mini-doll designs. The head parts with "light blue eyes, pink lips, open mouth" or "light brown eyes, pink lips and closed mouth" are the most common faces in LEGO mini-doll world, which actually corresponds to the real world.
+
+***
+
+```{r viz_face_feature, echo=FALSE}
+#summary(minidoll_parts)
+viz_face
+```
+
+***
+
+### 4.2 Skin tones of Mini-doll Characters 
+According to the two visualizations above, it is apparent that the majority of the common characters and frequently-used head parts have lighter skin tones. A more comprehensive examination of the skin tones of mini-doll characters is displayed below. 
+
+***   
+ - A pie chart  
+
+```{r viz_pie_skin, echo=FALSE}
+skin_pie 
+```
+
+***  
+ - A bar chart   
+
+```{r viz_bar_skin, echo=FALSE}
+skin_bar
+```
+
+***   
+ - A waffle chart   
+
+```{r viz_waffle_skin, echo=FALSE}
+skin_waffle
+```
+
+***
+
+It is shown that the vast majority of mini-doll characters have light skin tones. An underrepresentation of black and minority ethnic groups is embedded in LEGO mini-dolls, whereas LEGO claims that the company strives for more diversity in characters' appearances and constantly refreshes lines to make the minidoll-world more realistic (Ramblingbrick, 2017). 
+
+LEGO has done a better job in mini-figures, whose most noticeable feature is their ostensibly race-neutral yellow coloration. Originally, this is to represent all races and genders and leave room for players' imagination (Baichtal & Meno, 2011). Mini-doll figures aim at more likeness to real humanbeings, and uses flesh color to portray characters. Such a decision is understandable but the problem is that the use of light flesh head parts significantly outnumbers that flesh head parts. Whilst the sexisms embedded in the mini-doll figures have been widely concerned, mini-dolls also convey racial messages. In this regard, the mini-doll world really achieves its goal of assembling the real world (Ramblingbrick, 2017).
+
+***
+***
+***
+
+## 5. Conclusion
+### 5.1 Major findings
+This project visualizes the assembled datasets in different ways. Characters of light skin tone play a dominant role in the world of mini-dolls and imply a marginalization of races of darker skin tones.
+
+***
+
+### 5.2 Reflection on the visualization
+To compare among the visualizations of the dataset about skin tones, the waffle chart presents the best effect. 
+
+Without extra labels or notes, the waffle chart achieves the goal of providing clear comparisons among each category and emphasizing the exact frequencies as well as ranks for each skin tone. It also has the bonus of looking like LEGO bricks.
+
+By contrast, the pie chart illustrates the dominant role of light flesh among all skin tones, whereas the slices of other colors, especially those presenting the lowest values, look quite busy and it is hard to distinguish the difference between them. The values of individual categories are not demonstrated and it would be rather difficult to add texts of the exact proportion on each slice.
+
+Similarly, the bar chart displays that the color of light flesh ranks the first. However, the numeric variation between the category of the highest value and the lower ones is too large, so that the chart lacks visual clarity and aesthetics. The exact frequency could be better presented, if the breaks could be split into minor ones, or labels of the exact values could be added to each bin. 
+
+In conclusion, for a small-size dataset with few categories like the one assembled in this project, the waffle chart is of better graphic excellence.
+
+***
+
+### 5.3 Suggestions
+This project uses the variations of bin charts and pie charts to explore the dataset of LEGO mini-dolls from the aspect of skin tones. For future expansion, it is suggested that changes in LEGO mini-dolls should also be examined. An example is shown below.
+
+<!-- this examines the change of head parts -->
+```{r change_head}
+# is there any character use different head parts?
+face_change <- aggregate(face$dollname,
+                list(face$dollname),
+                length)
+colnames(face_change) <- c('dollname', 'changes')
+change_face <- subset(face_change, changes>1)
+change_face <- change_face[order(change_face$changes, decreasing=TRUE),]
+head(change_face, 10) # 10 characters who have most different head parts
+```
+
+***
+
+<!-- six characters having different skin tones -->
+```{r change_skin}
+# The record contains 6 duplicated character names, which means 6 characters have changed their skin tones. 
+# these characters are displayed in a stacking bar graph at the end of this document
+dollchange <- aggregate(doll$name,
+                        list(doll$name),
+                        length)
+change <- dollchange[dollchange[2] > 1,]
+colnames(change) <- c('name','times')
+change <- merge(change, doll, by = "name", all = FALSE)
+change
+```
+
+To be specific, 43 of 160 characters have more than one head part, and six of them changed skin tones. So far, such changes have made little difference but there might have been a noticeable tendency for more differentiated mini-doll figures and more progress in diversity among mini-dolls. 
+
+This could be studied given time-related data about mini-dolls. For visualizing such a dataset, it is suggested to use line charts or scatter plots instead of bar charts as follows, which fails to show the direction of changes.
+
+***
+<!-- a stacking bar chart, code is hidden while output is not -->
+```{r viz_change, echo=FALSE}
+change_viz <- ggplot(change,aes(x=name,y=frequency,label=frequency))+
+  geom_bar(stat = "identity", position = "fill", aes(fill = `Face color`))+
+  scale_fill_manual(values = color_schema)+
+  labs(x = 'Names of minidoll character',
+       y = 'Propotion of this skin tone',
+       title = 'Mini doll character who has changed skin tone',
+       subtitle = "Six characters have head parts of different colors",
+       caption = "[Data From Rebrickable]")+
+  theme_light()+
+  theme(title = element_text(face = 'bold', size = 12),
+        axis.text.x = element_text(size = 7, face = 'bold'), 
+        axis.text.y = element_text(size = 7),
+        axis.title.x = element_text(size = 8, face = 'bold'),
+        axis.title.y = element_text(size = 8, face = 'bold'),
+        legend.title = element_text(size = 8, face = 'bold'),
+        legend.text  = element_text(size = 7),
+        plot.tag = element_text(face = "italic", size = 4),
+        plot.margin = margin(0, 0, 0, 0, "cm"))
+
+#include the previous line to see the details of appearance updates
+change_viz
+```
+
+
+***
+***
+***
+***
+***
+***
+
+# Reference 
+
+Baichtal, John & Meno, Joe (2011). *The Cult of LEGO*. San Francisco: No Starch Press, pp.59. ISBN: 978-1-59327-391-0. Available at: https://www.oreilly.com/library/view/the-cult-of/9781593273910/ (Accessed:  May 20, 2021)
+
+
+Brickpedia (no dates). ‘*Mini-doll figure*’. Available at: https://brickipedia.fandom.com/wiki/Mini-doll_figure (Accessed: May 10, 2021).
+
+
+Chew, Jonathan (2015). ‘How Lego Finally Found Success With Girls’, *Fortune*. Available at: https://fortune.com/2015/12/30/lego-friends-girls/(Accessed: May 11, 2021).
+
+
+Few, S. (2004). ‘Eenie, Meenie, Minie, Moe: Selecting the Right Graph for Your Message’. Intelligent Enterprise. 7(14) pp.35-39. Available at: https://search-proquest-com.libproxy.ucl.ac.uk/docview/200627194/fulltextPDF/82144EBD5F6646F7PQ/1?accountid=14511  (Accessed: May 17, 2021).
+
+
+Few, Stephen (2007). ‘Save the Pies for Dessert’, * Perceptual Edge*. Available at: https://www.perceptualedge.com/articles/visual_business_intelligence/save_the_pies_for_dessert.pdf (Accessed: May 17, 2021).
+
+
+Few, Stephen (2017). ‘Lollipop Charts: “Who Loves You, Baby?”', *Perceptual Edge*. 17 May. Available at: https://www.perceptualedge.com/blog/?p=2642 (Accessed: May 15, 2021).
+
+
+Gehlenborg, N. & Wong, B. (2012). ‘Mapping quantitative data to color’. *Nature Methods*. 9(8). p. 769. Available at: https://www.nature.com/articles/nmeth.2134.pdf (Accessed: May 17, 2021).
+
+
+Hansegard Jens (2015). 'Lego Builds Stronger Ties to Girls’, *The wall street journal*. Available at: https://www.wsj.com/articles/lego-builds-stronger-ties-to-girls-1451420979 (Accessed: May 11, 2021).
+
+
+Holder, Eli (2020). ‘Settling the Debate: Bars vs Lollipops (vs Dot Plots)’, *3iap*. Available at: https://3iap.com/bar-graphs-vs-lollipop-charts-vs-dot-plots-experiment-PP8-qapwQe2fRBJu1-ADfA/ (Accessed: May 15, 2021).
+
+
+Ramblingbrick (2017). ‘Do you know who your Friends are? (The official word on the new look for LEGO Friends in 2018)’,  *The Rambling Brick*. 7 December. Available at: https://ramblingbrick.com/2017/12/07/do-you-know-who-your-friends-are-the-official-word-on-the-new-look-for-lego-friends-in-2018/ (Accessed:  May 17, 2021).
+
+
+Shoemaker, Bailey & Col, R. S. (2007). ‘*Tell LEGO to stop selling out girls! #LiberateLEGO*’. Available at: http://www.change.org/petitions/tell-lego-to-stop-selling-out-girls-liberatelego (Accessed: May 11, 2021).
+
+
+Thita (2017). ‘LEGO & Mega Bloks mini-dolls comparison’, *The Brick Blogger*. 20 April. Available at: http://thebrickblogger.com/2017/04/lego-mega-bloks-mini-dolls-comparison/ (Accessed: May 11, 2021).
+
+
+Wieners, Brad (2011). ‘Lego Is for Girls’, *Bloomberg Businessweek*. Available at: http://www.businessweek.com/magazine/lego-is-for-girls-12142011.html#4 (Accessed: May 11, 2021).
+
+
+Weitz, Darío (2020). ‘Lollipop Charts
+Why & How, Storytelling with Lollipops’, *towards data science*. 28 May. Available at: https://towardsdatascience.com/lollipop-charts-2f748b90f6f0 (Accessed: May 15, 2021).
+
